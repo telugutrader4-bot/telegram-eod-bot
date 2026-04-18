@@ -1,177 +1,237 @@
-import os
-import requests
-from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
+from datetime import datetime
 
-# =====================================
-# CONFIG
-# =====================================
+# =========================================
+# PROFESSIONAL IMAGE DASHBOARD — PART 1
+# =========================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = "@priceactionoptions"
+WIDTH = 1080
+HEIGHT = 1600
 
-TELEGRAM_PHOTO_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+BG = (248, 249, 252)          # Premium light background
+NAVY = (10, 25, 90)           # Brand dark blue
+YELLOW = (255, 196, 0)        # Brand yellow
+GREEN = (0, 170, 80)
+RED = (220, 53, 69)
+CYAN = (0, 180, 255)
+BLACK = (20, 20, 20)
+GRAY = (120, 120, 120)
+WHITE = (255, 255, 255)
+BORDER = (220, 225, 235)
 
-OUTPUT_IMAGE = "eod_report.png"
+OUTPUT = "dashboard_part1.png"
 
-# =====================================
-# SAMPLE DATA (replace later with Dhan API)
-# =====================================
+# =========================================
+# SAMPLE DATA
+# =========================================
 
-report_data = {
-    "date": datetime.now().strftime("%d %B %Y"),
+data = {
+    "date": "18 April 2026",
     "nifty": "24,315",
     "banknifty": "52,840",
     "sensex": "80,218",
-    "call_oi": [
-        "24500 CE",
-        "24600 CE",
-        "24700 CE"
-    ],
-    "put_oi": [
-        "24000 PE",
-        "24100 PE",
-        "24200 PE"
-    ],
+
     "top_volume": [
-        "RELIANCE",
-        "SBIN",
-        "BEL",
-        "TATA MOTORS",
-        "IRFC"
+        ("RELIANCE", "4.2 Cr"),
+        ("SBIN", "3.8 Cr"),
+        ("BEL", "3.1 Cr"),
+        ("TATA MOTORS", "2.9 Cr"),
+        ("IRFC", "2.6 Cr")
     ],
-    "fii": "FII Net Buy 🟢",
-    "dii": "DII Net Sell 🔴"
+
+    "delivery": [
+        ("BEL", "78%"),
+        ("IRCTC", "74%"),
+        ("HAL", "71%"),
+        ("BHEL", "69%"),
+        ("COAL INDIA", "67%")
+    ],
+
+    "call_oi": [
+        ("24500 CE", "1.82 Cr"),
+        ("24600 CE", "1.35 Cr"),
+        ("24700 CE", "95 L")
+    ],
+
+    "put_oi": [
+        ("24000 PE", "2.10 Cr"),
+        ("24100 PE", "1.64 Cr"),
+        ("24200 PE", "1.12 Cr")
+    ],
+
+    "fii": "+2,350 Cr",
+    "dii": "-1,120 Cr"
 }
 
-# =====================================
-# IMAGE GENERATOR
-# =====================================
+# =========================================
+# FONT LOADER
+# =========================================
 
-def create_dashboard_image(data):
-    width = 1080
-    height = 1350
-
-    bg_color = (245, 247, 252)
-    navy = (12, 25, 82)
-    yellow = (255, 204, 0)
-    green = (0, 153, 76)
-    red = (220, 53, 69)
-    black = (20, 20, 20)
-
-    image = Image.new("RGB", (width, height), bg_color)
-    draw = ImageDraw.Draw(image)
-
+def get_font(size, bold=False):
     try:
-        title_font = ImageFont.truetype("arial.ttf", 48)
-        section_font = ImageFont.truetype("arial.ttf", 34)
-        text_font = ImageFont.truetype("arial.ttf", 28)
-        small_font = ImageFont.truetype("arial.ttf", 24)
+        if bold:
+            return ImageFont.truetype("arialbd.ttf", size)
+        return ImageFont.truetype("arial.ttf", size)
     except:
-        title_font = ImageFont.load_default()
-        section_font = ImageFont.load_default()
-        text_font = ImageFont.load_default()
-        small_font = ImageFont.load_default()
+        return ImageFont.load_default()
 
-    # Header
-    draw.rectangle((0, 0, width, 110), fill=navy)
-    draw.text((40, 25), "PRICE ACTION TELUGU", fill=yellow, font=title_font)
+TITLE = get_font(42, True)
+SUB = get_font(30, True)
+TEXT = get_font(24)
+TEXT_BOLD = get_font(24, True)
+SMALL = get_font(20)
 
-    # Date
-    draw.text((40, 140), f"Institutional Smart Money Report", fill=black, font=section_font)
-    draw.text((40, 190), f"Date: {data['date']}", fill=black, font=text_font)
+# =========================================
+# BASE IMAGE
+# =========================================
 
-    y = 270
+img = Image.new("RGB", (WIDTH, HEIGHT), BG)
+draw = ImageDraw.Draw(img)
 
-    # Index Snapshot
-    draw.text((40, y), "INDEX SNAPSHOT", fill=navy, font=section_font)
-    y += 60
+# =========================================
+# HELPERS
+# =========================================
 
-    draw.text((60, y), f"NIFTY 50 → {data['nifty']} 🟢", fill=green, font=text_font)
-    y += 45
-    draw.text((60, y), f"BANK NIFTY → {data['banknifty']} 🟢", fill=green, font=text_font)
-    y += 45
-    draw.text((60, y), f"SENSEX → {data['sensex']} 🟢", fill=green, font=text_font)
+def box(x, y, w, h, title, color):
+    draw.rounded_rectangle(
+        (x, y, x+w, y+h),
+        radius=18,
+        fill=WHITE,
+        outline=BORDER,
+        width=2
+    )
 
-    y += 90
+    draw.rounded_rectangle(
+        (x, y, x+w, y+60),
+        radius=18,
+        fill=NAVY
+    )
 
-    # Call OI
-    draw.text((40, y), "CALL OI RESISTANCE", fill=red, font=section_font)
-    y += 55
+    draw.rectangle((x, y+42, x+w, y+60), fill=NAVY)
 
-    for item in data["call_oi"]:
-        draw.text((60, y), item, fill=black, font=text_font)
-        y += 40
+    draw.rectangle((x, y, x+12, y+60), fill=color)
 
-    y += 40
-
-    # Put OI
-    draw.text((40, y), "PUT OI SUPPORT", fill=green, font=section_font)
-    y += 55
-
-    for item in data["put_oi"]:
-        draw.text((60, y), item, fill=black, font=text_font)
-        y += 40
-
-    y += 40
-
-    # Top Volume
-    draw.text((40, y), "TOP VOLUME STOCKS", fill=navy, font=section_font)
-    y += 55
-
-    for item in data["top_volume"]:
-        draw.text((60, y), item, fill=black, font=text_font)
-        y += 40
-
-    y += 50
-
-    # FII DII
-    draw.text((40, y), "FII / DII DATA", fill=navy, font=section_font)
-    y += 60
-
-    draw.text((60, y), data["fii"], fill=green, font=text_font)
-    y += 45
-    draw.text((60, y), data["dii"], fill=red, font=text_font)
-
-    y += 80
-
-    draw.line((40, y, 1040, y), fill=navy, width=3)
-    y += 30
-
-    draw.text((40, y), "Follow @PriceActionTelugu for Daily Institutional Reports", fill=navy, font=small_font)
-
-    image.save(OUTPUT_IMAGE)
-    print("Image created successfully")
+    draw.text(
+        (x+30, y+14),
+        title,
+        font=SUB,
+        fill=WHITE
+    )
 
 
-# =====================================
-# TELEGRAM PHOTO SENDER
-# =====================================
-
-def send_photo_to_telegram():
-    with open(OUTPUT_IMAGE, "rb") as photo:
-        files = {
-            "photo": photo
-        }
-
-        data = {
-            "chat_id": CHAT_ID,
-            "caption": "📊 Institutional Smart Money Report"
-        }
-
-        response = requests.post(
-            TELEGRAM_PHOTO_URL,
-            data=data,
-            files=files
-        )
-
-        print(response.text)
+def row(y, left, right, right_color=BLACK):
+    draw.text((60, y), left, font=TEXT_BOLD, fill=BLACK)
+    draw.text((900, y), right, font=TEXT_BOLD, fill=right_color)
 
 
-# =====================================
-# RUN
-# =====================================
+# =========================================
+# HEADER
+# =========================================
 
-if __name__ == "__main__":
-    create_dashboard_image(report_data)
-    send_photo_to_telegram()
+draw.rounded_rectangle(
+    (20, 20, 1060, 110),
+    radius=20,
+    fill=YELLOW
+)
+
+draw.text(
+    (250, 40),
+    "PRICE ACTION TELUGU",
+    font=TITLE,
+    fill=NAVY
+)
+
+draw.text(
+    (40, 140),
+    "Institutional Smart Money Report",
+    font=TEXT,
+    fill=BLACK
+)
+
+draw.rounded_rectangle(
+    (780, 130, 1040, 180),
+    radius=12,
+    fill=YELLOW
+)
+
+draw.text(
+    (830, 142),
+    data["date"],
+    font=TEXT_BOLD,
+    fill=NAVY
+)
+
+# =========================================
+# INDEX SNAPSHOT
+# =========================================
+
+y = 220
+box(20, y, 1040, 220, "INDEX SNAPSHOT", CYAN)
+
+draw.text((70, y+90), f"NIFTY 50     {data['nifty']} 🟢", font=TEXT_BOLD, fill=GREEN)
+draw.text((70, y+135), f"BANK NIFTY   {data['banknifty']} 🟢", font=TEXT_BOLD, fill=GREEN)
+draw.text((70, y+180), f"SENSEX       {data['sensex']} 🟢", font=TEXT_BOLD, fill=GREEN)
+
+# =========================================
+# TOP VOLUME
+# =========================================
+
+y = 480
+box(20, y, 1040, 300, "TOP 5 HIGHEST VOLUME", YELLOW)
+
+yy = y + 90
+for stock, vol in data["top_volume"]:
+    row(yy, stock, vol, NAVY)
+    yy += 42
+
+# =========================================
+# DELIVERY %
+# =========================================
+
+y = 820
+box(20, y, 1040, 300, "TOP 5 HIGHEST DELIVERY %", GREEN)
+
+yy = y + 90
+for stock, val in data["delivery"]:
+    row(yy, stock, val, GREEN)
+    yy += 42
+
+# =========================================
+# OI LEVELS
+# =========================================
+
+y = 1160
+box(20, y, 1040, 320, "OPEN INTEREST LEVELS", RED)
+
+draw.text((60, y+90), "CALL OI — Resistance", font=TEXT_BOLD, fill=RED)
+draw.text((580, y+90), "PUT OI — Support", font=TEXT_BOLD, fill=GREEN)
+
+yy = y + 140
+for i in range(3):
+    draw.text((60, yy), f"{data['call_oi'][i][0]}   {data['call_oi'][i][1]}", font=TEXT, fill=BLACK)
+    draw.text((580, yy), f"{data['put_oi'][i][0]}   {data['put_oi'][i][1]}", font=TEXT, fill=BLACK)
+    yy += 45
+
+# =========================================
+# FOOTER
+# =========================================
+
+draw.rounded_rectangle(
+    (0, 1520, WIDTH, 1600),
+    radius=0,
+    fill=NAVY
+)
+
+draw.text(
+    (220, 1545),
+    "Follow @PriceActionTelugu for Daily Updates",
+    font=TEXT_BOLD,
+    fill=YELLOW
+)
+
+# =========================================
+# SAVE
+# =========================================
+
+img.save(OUTPUT)
+print("Professional dashboard created:", OUTPUT)
