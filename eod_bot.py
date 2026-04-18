@@ -114,8 +114,14 @@ def get_report_data():
 def load_font(size, bold=False):
     try:
         if bold:
-            return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
-        return ImageFont.truetype("DejaVuSans.ttf", size)
+            return ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                size
+            )
+        return ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            size
+        )
     except:
         return ImageFont.load_default()
 
