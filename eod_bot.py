@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 # =====================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = "@priceactiontelugu"
+CHAT_ID = "@priceactionoptions"
 
 TELEGRAM_PHOTO_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
