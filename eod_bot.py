@@ -1,84 +1,116 @@
 import os
 import requests
+from datetime import datetime
+
+# =========================
+# CONFIG
+# =========================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_USERNAME = "@priceactionoptions"
+CHAT_ID = "@priceactiontelugu"   # replace with your Telegram channel username if needed
 
-DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
 DHAN_CLIENT_ID = os.getenv("DHAN_CLIENT_ID")
+DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
 
+TELEGRAM_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-def get_live_market_data():
-    """
-    Starter structure for live institutional dashboard.
-    We will expand this with full Dhan endpoints.
-    """
+HEADERS = {
+    "access-token": DHAN_ACCESS_TOKEN,
+    "client-id": DHAN_CLIENT_ID,
+    "Content-Type": "application/json"
+}
 
-    headers = {
-        "access-token": DHAN_ACCESS_TOKEN,
-        "client-id": DHAN_CLIENT_ID,
-        "Content-Type": "application/json"
+# =========================
+# TELEGRAM SEND FUNCTION
+# =========================
+
+def send_telegram_message(message):
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
     }
 
-    # Initial structured report (starter production format)
-    report = f"""
-📊 PRICE ACTION TELUGU
-Institutional Smart Money Report
+    response = requests.post(TELEGRAM_URL, json=payload)
+    print(response.text)
 
-🔥 Top 5 Highest Volume
+
+# =========================
+# SAMPLE DATA FETCH
+# (Starter version using stable structure)
+# =========================
+
+def get_market_report():
+    today = datetime.now().strftime("%d %B %Y")
+
+    # Initial production-safe starter report
+    # We will connect deeper Dhan endpoints next step
+
+    message = f"""
+📊 <b>PRICE ACTION TELUGU</b>
+
+🏛 <b>Institutional Smart Money Report</b>
+📅 {today}
+
+━━━━━━━━━━━━━━━
+
+📌 <b>INDEX SNAPSHOT</b>
+
+NIFTY 50 → 24,315 🟢
+BANK NIFTY → 52,840 🟢
+SENSEX → 80,218 🟢
+
+━━━━━━━━━━━━━━━
+
+🔴 <b>CALL OI RESISTANCE</b>
+
+24500 CE
+24600 CE
+24700 CE
+
+━━━━━━━━━━━━━━━
+
+🟢 <b>PUT OI SUPPORT</b>
+
+24000 PE
+24100 PE
+24200 PE
+
+━━━━━━━━━━━━━━━
+
+📈 <b>TOP VOLUME STOCKS</b>
+
 RELIANCE
 SBIN
 BEL
 TATA MOTORS
 IRFC
 
-🟢 Top 5 Highest Delivery %
-BEL
-IRCTC
-HAL
-BHEL
-COAL INDIA
+━━━━━━━━━━━━━━━
 
-🔴 Highest Call OI
-NIFTY 24500 CE → 1.82 Cr
-BANKNIFTY 56000 CE → 95L
+💰 <b>FII / DII DATA</b>
 
-🟢 Highest Put OI
-NIFTY 24000 PE → 2.10 Cr
-BANKNIFTY 55000 PE → 1.12 Cr
+FII Net Buy 🟢
+DII Net Sell 🔴
 
-🏢 Bulk Deals
-RELIANCE
-INFY
-BEL
+━━━━━━━━━━━━━━━
 
-🏦 Block Deals
-ICICI BANK
-TCS
-SUNPHARMA
+⚡ <b>TOMORROW BIAS</b>
 
-💰 FII / DII
-🟢 FII Net Buy → +₹2,350 Cr
-🔴 DII Net Sell → -₹1,120 Cr
+Buy on Dips near Support
 
-⚠ For Educational Purposes Only
-Price Action Telugu
+━━━━━━━━━━━━━━━
+
+Follow @PriceActionTelugu
 """
-    return report
+
+    return message
 
 
-def send_to_telegram(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-    payload = {
-        "chat_id": CHANNEL_USERNAME,
-        "text": message
-    }
-
-    response = requests.post(url, data=payload)
-    print(response.text)
-
+# =========================
+# MAIN
+# =========================
 
 if __name__ == "__main__":
-    message = get_live_market_data()
-    send_to_telegram(message)
+    report = get_market_report()
+    send_telegram_message(report)
