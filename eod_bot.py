@@ -169,78 +169,94 @@ def get_52w(quotes):
 # OPTION CHAIN OI — correct Dhan format
 # ─────────────────────────────────────────────────────────────
 
-def get_next_expiry():
-    """Get nearest Thursday expiry date"""
+def get_expiry_dates():
+    """Get current and next Thursday expiry dates to try"""
     today = datetime.now()
-    days_ahead = 3 - today.weekday()  # Thursday = 3
-    if days_ahead <= 0:
-        days_ahead += 7
-    expiry = today + timedelta(days=days_ahead)
-    return expiry.strftime("%Y-%m-%d")
+    dates = []
+    # Try next 3 Thursdays
+    for week in range(3):
+        days_ahead = (3 - today.weekday()) % 7 + (week * 7)
+        if days_ahead == 0:
+            days_ahead = 7
+        expiry = today + timedelta(days=days_ahead)
+        dates.append(expiry.strftime("%Y-%m-%d"))
+    return dates
 
 def fetch_oi(symbol="NIFTY"):
-    expiry = get_next_expiry()
-    sec_id = 13 if symbol == "NIFTY" else 25
-    payload = {
-        "UnderlyingScrip": sec_id,
-        "UnderlyingSeg":   "IDX_I",
-        "Expiry":          expiry
-    }
-    data = dhan_post("https://api.dhan.co/v2/optionchain", payload)
+    sec_id  = 13 if symbol == "NIFTY" else 25
+    expiries = get_expiry_dates()
     call_oi, put_oi = [], []
-    try:
-        rows = data.get("data", [])
-        oi_list = []
-        for row in rows:
-            strike = row.get("strikePrice", 0)
-            c_oi   = row.get("callOI", row.get("CE_OI", 0)) or 0
-            p_oi   = row.get("putOI",  row.get("PE_OI", 0)) or 0
-            if strike and (c_oi or p_oi):
-                oi_list.append((float(strike), float(c_oi), float(p_oi)))
 
-        for strike, c, _ in sorted(oi_list, key=lambda x: -x[1])[:4]:
-            val = f"{c/100:.2f} Cr" if c >= 100 else f"{int(c)} L"
-            call_oi.append((f"{symbol} {int(strike)} CE", val))
-        for strike, _, p in sorted(oi_list, key=lambda x: -x[2])[:4]:
-            val = f"{p/100:.2f} Cr" if p >= 100 else f"{int(p)} L"
-            put_oi.append((f"{symbol} {int(strike)} PE", val))
+    for expiry in expiries:
+        payload = {
+            "UnderlyingScrip": sec_id,
+            "UnderlyingSeg":   "IDX_I",
+            "Expiry":          expiry
+        }
+        data = dhan_post("https://api.dhan.co/v2/optionchain", payload)
+        if not data:
+            continue
 
-        print(f"OI {symbol}: {len(oi_list)} strikes, top call={call_oi[:1]}")
-    except Exception as e:
-        print(f"OI {symbol} parse error: {e}")
-        print(f"Response: {str(data)[:200]}")
+        err = (data.get("data") or {})
+        if isinstance(err, dict) and err.get("811"):
+            print(f"OI {symbol} expiry {expiry} invalid, trying next...")
+            continue
+
+        try:
+            rows = data.get("data", [])
+            if not rows:
+                continue
+            oi_list = []
+            for row in rows:
+                strike = row.get("strikePrice", 0)
+                c_oi   = float(row.get("callOI", 0) or row.get("CE_OI", 0) or 0)
+                p_oi   = float(row.get("putOI",  0) or row.get("PE_OI", 0) or 0)
+                if strike and (c_oi or p_oi):
+                    oi_list.append((float(strike), c_oi, p_oi))
+
+            if not oi_list:
+                continue
+
+            for strike, c, _ in sorted(oi_list, key=lambda x: -x[1])[:4]:
+                val = f"{c/100:.2f} Cr" if c >= 100 else f"{int(c)} L"
+                call_oi.append((f"{symbol} {int(strike)} CE", val))
+            for strike, _, p in sorted(oi_list, key=lambda x: -x[2])[:4]:
+                val = f"{p/100:.2f} Cr" if p >= 100 else f"{int(p)} L"
+                put_oi.append((f"{symbol} {int(strike)} PE", val))
+
+            print(f"OI {symbol} ({expiry}): {len(oi_list)} strikes found")
+            break  # success — stop trying
+
+        except Exception as e:
+            print(f"OI {symbol} parse error: {e}, response: {str(data)[:150]}")
+            continue
+
     return call_oi, put_oi
 
 # ─────────────────────────────────────────────────────────────
 # SECTOR PERFORMANCE
 # ─────────────────────────────────────────────────────────────
 
-def fetch_sectors():
-    # Key sector index IDs in Dhan IDX_I
-    sector_map = [
-        (27,  "DEFENCE"), (442, "PSU BANK"), (259, "METAL"),
-        (311, "IT"),      (201, "PHARMA"),   (89,  "FMCG"),
-    ]
-    try:
-        ids = [s[0] for s in sector_map]
-        payload = {"IDX_I": ids}
-        data = dhan_post("https://api.dhan.co/v2/marketfeed/ohlc", payload)
-        result = []
-        seg = (data or {}).get("data", {}).get("IDX_I", {})
-        for sid, name in sector_map:
-            key = str(sid)
-            if key in seg:
-                d    = seg[key]
-                ltp  = d["last_price"]
-                prev = d["ohlc"]["close"]
-                pct  = ((ltp - prev) / prev * 100) if prev else 0
-                sign = "+" if pct >= 0 else ""
-                result.append((name, f"{sign}{pct:.1f}%"))
-        print(f"Sectors: {result}")
-        return result[:6]
-    except Exception as e:
-        print(f"Sectors error: {e}")
-        return []
+def fetch_sectors(quotes):
+    """Derive sector performance from stock quotes we already have"""
+    # Group stocks by sector
+    sector_stocks = {
+        "DEFENCE":  ["BEL", "HAL"],
+        "BANKING":  ["HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK"],
+        "IT":       ["INFY", "TCS", "HCLTECH", "WIPRO", "TECHM"],
+        "PHARMA":   ["SUNPHARMA"],
+        "ENERGY":   ["TATAPOWER", "ONGC"],
+        "METALS":   ["TATASTEEL"],
+    }
+    result = []
+    for sector, stocks in sector_stocks.items():
+        pcts = [quotes[s]["pct"] for s in stocks if s in quotes]
+        if pcts:
+            avg  = sum(pcts) / len(pcts)
+            sign = "+" if avg >= 0 else ""
+            result.append((sector, f"{sign}{avg:.1f}%"))
+    print(f"Sectors: {result}")
+    return result[:6]
 
 # ─────────────────────────────────────────────────────────────
 # MAIN DATA BUILDER
@@ -252,7 +268,7 @@ def get_report_data():
 
     indices           = fetch_indices()
     quotes            = fetch_all_quotes()
-    sectors           = fetch_sectors()
+    sectors           = fetch_sectors(quotes)
     call_oi, put_oi   = fetch_oi("NIFTY")
     bnf_call, bnf_put = fetch_oi("BANKNIFTY")
 
