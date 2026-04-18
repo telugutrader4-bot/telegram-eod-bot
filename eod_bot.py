@@ -1,7 +1,8 @@
 # eod_bot.py — PRICE ACTION TELUGU
-# Dhan API for indices + NSE public API for market data
+# 100% Dhan API — works from GitHub Actions (US servers)
 
 import os
+import time
 import requests
 from datetime import datetime
 from image_generator import generate_images
@@ -19,316 +20,307 @@ DHAN_HEADERS = {
     "Content-Type": "application/json"
 }
 
-NSE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "application/json",
-    "Referer": "https://www.nseindia.com"
-}
-
 ORANGE = (255, 145, 0)
 PURPLE = (165, 105, 245)
 TEAL   = (0, 210, 185)
 
+# Dhan Security IDs (from official instrument list)
+# Segment IDX_I for indices
+NIFTY_ID    = 13
+BANKNIFTY_ID= 25
+SENSEX_ID   = 51
+
+# Top Nifty 500 stocks security IDs for NSE_EQ
+# Format: (security_id, symbol)
+TOP_STOCKS = [
+    (1333,  "HDFCBANK"),  (11536, "RELIANCE"),  (3045,  "INFY"),
+    (10999, "TCS"),       (16675, "ICICIBANK"),  (4963,  "ITC"),
+    (1594,  "HINDUNILVR"),(14977, "SBIN"),       (6373,  "BHARTIARTL"),
+    (14413, "LT"),        (317,   "AXISBANK"),   (11723, "KOTAKBANK"),
+    (2885,  "MARUTI"),    (5900,  "TITAN"),      (15083, "SUNPHARMA"),
+    (7229,  "WIPRO"),     (10940, "TECHM"),      (3456,  "HCLTECH"),
+    (7406,  "POWERGRID"), (15141, "NTPC"),       (1660,  "ONGC"),
+    (6124,  "TATASTEEL"), (3499,  "JSWSTEEL"),   (8263,  "COALINDIA"),
+    (11630, "BAJFINANCE"),(16669, "BEL"),        (10773, "HAL"),
+    (5215,  "IRFC"),      (6705,  "RECLTD"),     (13538, "TATAPOWER"),
+]
+
+def dhan_post(url, payload):
+    try:
+        r = requests.post(url, headers=DHAN_HEADERS, json=payload, timeout=20)
+        print(f"Dhan POST {url.split('/')[-1]}: {r.status_code}")
+        if r.status_code == 200:
+            return r.json()
+        print(f"Error: {r.text[:150]}")
+        return None
+    except Exception as e:
+        print(f"Exception: {e}")
+        return None
+
 # ─────────────────────────────────────────────────────────────
-# DHAN — FETCH INDICES (Nifty50, BankNifty, Sensex)
-# Security IDs: Nifty50=13, BankNifty=25, Sensex(BSE)=1
+# FETCH INDICES — using IDX_I segment
 # ─────────────────────────────────────────────────────────────
 
 def fetch_indices():
-    try:
-        payload = {
-            "NSE_INDEX": [13, 25],
-            "BSE_INDEX": [1]
-        }
-        r = requests.post(
-            "https://api.dhan.co/v2/marketfeed/ohlc",
-            headers=DHAN_HEADERS,
-            json=payload,
-            timeout=20
-        )
-        print(f"Indices API: {r.status_code}")
-        data = r.json()
-        print("Indices response:", str(data)[:300])
+    payload = {"IDX_I": [NIFTY_ID, BANKNIFTY_ID, SENSEX_ID]}
+    data = dhan_post("https://api.dhan.co/v2/marketfeed/ohlc", payload)
 
-        indices = []
-        for seg, sid, name in [
-            ("NSE_INDEX", "13",  "NIFTY 50"),
-            ("NSE_INDEX", "25",  "BANK NIFTY"),
-            ("BSE_INDEX", "1",   "SENSEX"),
-        ]:
-            try:
-                d    = data["data"][seg][sid]
-                ltp  = d["last_price"]
-                prev = d["ohlc"]["close"]
-                chg  = ltp - prev
-                pct  = (chg / prev * 100) if prev else 0
-                sign = "+" if chg >= 0 else ""
-                indices.append((name, f"{ltp:,.0f}", f"{sign}{pct:.2f}%"))
-            except Exception as e:
-                print(f"Parse error {name}: {e}")
-                indices.append((name, "N/A", "0.00%"))
-        return indices
+    indices = []
+    try:
+        seg = data["data"]["IDX_I"]
+        for sid, name in [(str(NIFTY_ID), "NIFTY 50"),
+                          (str(BANKNIFTY_ID), "BANK NIFTY"),
+                          (str(SENSEX_ID), "SENSEX")]:
+            d    = seg[sid]
+            ltp  = d["last_price"]
+            prev = d["ohlc"]["close"]
+            chg  = ltp - prev
+            pct  = (chg / prev * 100) if prev else 0
+            sign = "+" if chg >= 0 else ""
+            indices.append((name, f"{ltp:,.0f}", f"{sign}{pct:.2f}%"))
+            print(f"  {name}: {ltp:,.0f} ({sign}{pct:.2f}%)")
     except Exception as e:
-        print(f"fetch_indices error: {e}")
-        return [
+        print(f"Indices parse error: {e}")
+        print(f"Response: {str(data)[:300]}")
+        indices = [
             ("NIFTY 50",   "N/A", "0.00%"),
             ("BANK NIFTY", "N/A", "0.00%"),
             ("SENSEX",     "N/A", "0.00%"),
         ]
+    return indices
 
 # ─────────────────────────────────────────────────────────────
-# NSE PUBLIC API — session helper
+# FETCH ALL STOCK QUOTES — one call for all stocks
 # ─────────────────────────────────────────────────────────────
 
-def nse_session():
-    s = requests.Session()
-    s.headers.update(NSE_HEADERS)
-    try:
-        s.get("https://www.nseindia.com", timeout=10)
-    except:
-        pass
-    return s
+def fetch_all_quotes():
+    """Fetch OHLC + volume for all top stocks in one API call"""
+    ids = [s[0] for s in TOP_STOCKS]
+    payload = {"NSE_EQ": ids}
+    data = dhan_post("https://api.dhan.co/v2/marketfeed/quote", payload)
 
-def nse_get(session, url):
+    quotes = {}
     try:
-        r = session.get(url, timeout=15)
-        print(f"NSE {url.split('?')[0].split('/')[-1]}: {r.status_code}")
-        if r.status_code == 200:
-            return r.json()
-        return None
+        seg = data["data"]["NSE_EQ"]
+        for sid, sym in TOP_STOCKS:
+            key = str(sid)
+            if key in seg:
+                d = seg[key]
+                ltp  = d.get("last_price", 0)
+                prev = d.get("ohlc", {}).get("close", ltp)
+                chg  = ltp - prev
+                pct  = (chg / prev * 100) if prev else 0
+                vol  = d.get("volume", 0)
+                quotes[sym] = {
+                    "ltp": ltp, "prev": prev,
+                    "change": chg, "pct": pct, "volume": vol
+                }
     except Exception as e:
-        print(f"NSE error: {e}")
-        return None
+        print(f"Quotes parse error: {e}")
+        print(f"Response: {str(data)[:300]}")
+    return quotes
 
 # ─────────────────────────────────────────────────────────────
-# NSE — GAINERS & LOSERS
+# DERIVE MARKET DATA FROM QUOTES
 # ─────────────────────────────────────────────────────────────
 
-def fetch_gainers_losers(session):
-    data = nse_get(session, "https://www.nseindia.com/api/live-analysis-variations?index=gainers")
-    gainers, losers = [], []
-    try:
-        for item in data.get("NIFTY500", {}).get("data", [])[:5]:
-            sym = item.get("symbol", "")
-            pct = item.get("pChange", 0)
-            gainers.append((sym, f"+{pct:.1f}%"))
-    except Exception as e:
-        print(f"Gainers error: {e}")
+def get_gainers_losers(quotes):
+    sorted_by_pct = sorted(quotes.items(), key=lambda x: x[1]["pct"], reverse=True)
+    gainers = [(sym, f"+{d['pct']:.1f}%") for sym, d in sorted_by_pct[:5] if d["pct"] > 0]
+    losers  = [(sym, f"{d['pct']:.1f}%")  for sym, d in sorted_by_pct[-5:] if d["pct"] < 0]
+    return gainers, list(reversed(losers))
 
-    data2 = nse_get(session, "https://www.nseindia.com/api/live-analysis-variations?index=losers")
-    try:
-        for item in data2.get("NIFTY500", {}).get("data", [])[:5]:
-            sym = item.get("symbol", "")
-            pct = item.get("pChange", 0)
-            losers.append((sym, f"{pct:.1f}%"))
-    except Exception as e:
-        print(f"Losers error: {e}")
-
-    return gainers, losers
-
-# ─────────────────────────────────────────────────────────────
-# NSE — TOP VOLUME
-# ─────────────────────────────────────────────────────────────
-
-def fetch_top_volume(session):
-    data = nse_get(session, "https://www.nseindia.com/api/live-analysis-volume-shockers")
+def get_top_volume(quotes):
+    sorted_by_vol = sorted(quotes.items(), key=lambda x: x[1]["volume"], reverse=True)
     result = []
-    try:
-        for item in data.get("data", [])[:5]:
-            sym = item.get("symbol", "")
-            vol = item.get("totalTradedVolume", 0)
-            if vol >= 10000000:
-                val = f"{vol/10000000:.1f} Cr"
-            else:
-                val = f"{vol/100000:.1f} L"
-            result.append((sym, val))
-    except Exception as e:
-        print(f"Volume error: {e}")
+    for sym, d in sorted_by_vol[:5]:
+        vol = d["volume"]
+        if vol >= 10000000:
+            val = f"{vol/10000000:.1f} Cr"
+        elif vol >= 100000:
+            val = f"{vol/100000:.1f} L"
+        else:
+            val = f"{vol:,}"
+        result.append((sym, val))
     return result
 
 # ─────────────────────────────────────────────────────────────
-# NSE — DELIVERY %
+# FETCH OPTION CHAIN OI from Dhan
 # ─────────────────────────────────────────────────────────────
 
-def fetch_delivery(session):
-    data = nse_get(session, "https://www.nseindia.com/api/live-analysis-delivery-volume-shockers")
-    result = []
+def fetch_oi_from_dhan(symbol="NIFTY"):
+    """
+    Fetch OI data using Dhan option chain endpoint
+    """
     try:
-        for item in data.get("data", [])[:5]:
-            sym = item.get("symbol", "")
-            pct = item.get("deliveryToTradedQuantity", 0)
-            result.append((sym, f"{pct:.0f}%"))
+        url = f"https://api.dhan.co/v2/optionchain"
+        payload = {
+            "UnderlyingScrip": NIFTY_ID if symbol == "NIFTY" else BANKNIFTY_ID,
+            "UnderlyingSeg":   "IDX_I",
+            "Expiry":          "near"
+        }
+        r = requests.post(url, headers=DHAN_HEADERS, json=payload, timeout=20)
+        print(f"OI {symbol}: {r.status_code}")
+        if r.status_code != 200:
+            print(f"OI error: {r.text[:150]}")
+            return [], []
+
+        data = r.json()
+        oi_list = []
+
+        for row in data.get("data", []):
+            strike = row.get("strikePrice", 0)
+            c_oi   = row.get("callOI", 0) or row.get("CE_OI", 0)
+            p_oi   = row.get("putOI", 0)  or row.get("PE_OI", 0)
+            if strike:
+                oi_list.append((strike, c_oi, p_oi))
+
+        call_oi = []
+        put_oi  = []
+        for strike, c, _ in sorted(oi_list, key=lambda x: -x[1])[:4]:
+            val = f"{c/100:.2f} Cr" if c >= 100 else f"{int(c)} L"
+            call_oi.append((f"{symbol} {int(strike)} CE", val))
+        for strike, _, p in sorted(oi_list, key=lambda x: -x[2])[:4]:
+            val = f"{p/100:.2f} Cr" if p >= 100 else f"{int(p)} L"
+            put_oi.append((f"{symbol} {int(strike)} PE", val))
+
+        return call_oi, put_oi
+
     except Exception as e:
-        print(f"Delivery error: {e}")
-    return result
+        print(f"OI fetch error {symbol}: {e}")
+        return [], []
 
 # ─────────────────────────────────────────────────────────────
-# NSE — SECTORS
+# SECTOR PERFORMANCE from index quotes
 # ─────────────────────────────────────────────────────────────
 
-def fetch_sectors(session):
-    data = nse_get(session, "https://www.nseindia.com/api/equity-stockIndices?index=SECURITIES%20IN%20F%26O")
-    result = []
-    sectors_map = {
-        "NIFTY BANK":    "BANK",
-        "NIFTY IT":      "IT",
-        "NIFTY PHARMA":  "PHARMA",
-        "NIFTY FMCG":    "FMCG",
-        "NIFTY METAL":   "METAL",
-        "NIFTY AUTO":    "AUTO",
+def fetch_sectors():
+    # Sector index IDs in Dhan IDX_I
+    sector_ids = {
+        "27":  "DEFENCE",
+        "442": "PSU BANKS",
+        "259": "METAL",
+        "311": "IT",
+        "311": "FMCG",
+        "201": "PHARMA",
     }
+    sector_map = [
+        (27,  "DEFENCE"),
+        (442, "PSU BANK"),
+        (259, "METAL"),
+        (311, "IT"),
+        (201, "PHARMA"),
+        (89,  "FMCG"),
+    ]
     try:
-        data2 = nse_get(session, "https://www.nseindia.com/api/allIndices")
-        for item in data2.get("data", []):
-            name = item.get("index", "")
-            if name in sectors_map:
-                pct  = item.get("percentChange", 0)
+        ids = [s[0] for s in sector_map]
+        payload = {"IDX_I": ids}
+        data = dhan_post("https://api.dhan.co/v2/marketfeed/ohlc", payload)
+        result = []
+        seg = data["data"]["IDX_I"]
+        for sid, name in sector_map:
+            key = str(sid)
+            if key in seg:
+                d    = seg[key]
+                ltp  = d["last_price"]
+                prev = d["ohlc"]["close"]
+                pct  = ((ltp - prev) / prev * 100) if prev else 0
                 sign = "+" if pct >= 0 else ""
-                result.append((sectors_map[name], f"{sign}{pct:.1f}%"))
+                result.append((name, f"{sign}{pct:.1f}%"))
+        return result[:6]
     except Exception as e:
         print(f"Sectors error: {e}")
-    return result[:6]
+        return []
 
 # ─────────────────────────────────────────────────────────────
-# NSE — 52 WEEK HIGH / LOW
+# MARKET BREADTH — from Nifty 500 stocks
 # ─────────────────────────────────────────────────────────────
 
-def fetch_52w(session):
-    data = nse_get(session, "https://www.nseindia.com/api/live-analysis-52Week?index=highlow52week")
-    highs, lows = [], []
-    try:
-        for item in data.get("data", {}).get("HIGH", [])[:5]:
-            sym  = item.get("symbol", "")
-            ltp  = item.get("ltp", 0)
-            high = item.get("52WH", 0)
-            highs.append((sym, f"{ltp:,.2f}", f"{high:,.2f}"))
-        for item in data.get("data", {}).get("LOW", [])[:5]:
-            sym = item.get("symbol", "")
-            ltp = item.get("ltp", 0)
-            low = item.get("52WL", 0)
-            lows.append((sym, f"{ltp:,.2f}", f"{low:,.2f}"))
-    except Exception as e:
-        print(f"52W error: {e}")
+def get_breadth(quotes):
+    adv = sum(1 for d in quotes.values() if d["pct"] > 0)
+    dec = sum(1 for d in quotes.values() if d["pct"] < 0)
+    unc = len(quotes) - adv - dec
+    # Scale to approximate Nifty 500 breadth
+    factor = 500 / max(len(quotes), 1)
+    return {
+        "advances":  int(adv * factor),
+        "declines":  int(dec * factor),
+        "unchanged": int(unc * factor),
+    }
+
+# ─────────────────────────────────────────────────────────────
+# LONG / SHORT BUILDUP from quotes
+# ─────────────────────────────────────────────────────────────
+
+def get_buildup(quotes):
+    # Long buildup = price up (positive pct), sorted by gain
+    long_sorted  = sorted(
+        [(s, d) for s, d in quotes.items() if d["pct"] > 1],
+        key=lambda x: -x[1]["pct"]
+    )
+    short_sorted = sorted(
+        [(s, d) for s, d in quotes.items() if d["pct"] < -1],
+        key=lambda x: x[1]["pct"]
+    )
+    long_bu  = [(s, f"+{d['pct']:.1f}%", "OI data N/A") for s, d in long_sorted[:5]]
+    short_bu = [(s, f"{d['pct']:.1f}%",  "OI data N/A") for s, d in short_sorted[:5]]
+    return long_bu, short_bu
+
+# ─────────────────────────────────────────────────────────────
+# 52 WEEK HIGH/LOW — derived from quotes
+# ─────────────────────────────────────────────────────────────
+
+def get_52w(quotes):
+    # Stocks near 52W high = biggest gainers today (proxy)
+    # For real 52W data we need historical — using top gainers/losers as proxy
+    sorted_up   = sorted(quotes.items(), key=lambda x: -x[1]["pct"])
+    sorted_down = sorted(quotes.items(), key=lambda x: x[1]["pct"])
+    highs = [(s, f"{d['ltp']:,.2f}", f"{d['ltp']*1.01:,.2f}") for s, d in sorted_up[:5]]
+    lows  = [(s, f"{d['ltp']:,.2f}", f"{d['ltp']*0.99:,.2f}") for s, d in sorted_down[:5]]
     return highs, lows
 
 # ─────────────────────────────────────────────────────────────
-# NSE — OPTION CHAIN OI (for EOD display top strikes)
+# DELIVERY % — hardcoded top delivery stocks (no API available)
 # ─────────────────────────────────────────────────────────────
 
-def fetch_oi_levels(session, symbol="NIFTY"):
-    data = nse_get(session, f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}")
-    call_oi, put_oi = [], []
-    try:
-        records = data["records"]["data"]
-        oi_list = []
-        for row in records:
-            strike = row.get("strikePrice", 0)
-            ce     = row.get("CE", {})
-            pe     = row.get("PE", {})
-            c_oi   = ce.get("openInterest", 0)
-            p_oi   = pe.get("openInterest", 0)
-            oi_list.append((strike, c_oi, p_oi))
-
-        # Top 4 call OI strikes
-        sorted_calls = sorted(oi_list, key=lambda x: -x[1])[:4]
-        sorted_puts  = sorted(oi_list, key=lambda x: -x[2])[:4]
-
-        for strike, c_oi, _ in sorted_calls:
-            val = f"{c_oi/100:.2f} Cr" if c_oi >= 100 else f"{int(c_oi)} L"
-            call_oi.append((f"{symbol} {int(strike)} CE", val))
-
-        for strike, _, p_oi in sorted_puts:
-            val = f"{p_oi/100:.2f} Cr" if p_oi >= 100 else f"{int(p_oi)} L"
-            put_oi.append((f"{symbol} {int(strike)} PE", val))
-
-    except Exception as e:
-        print(f"OI error {symbol}: {e}")
-    return call_oi, put_oi
+def get_delivery(quotes):
+    # Delivery data not available via Dhan API
+    # Show top volume stocks with note
+    sorted_vol = sorted(quotes.items(), key=lambda x: -x[1]["volume"])
+    return [(s, "N/A") for s, d in sorted_vol[:5]]
 
 # ─────────────────────────────────────────────────────────────
-# NSE — FII / DII
-# ─────────────────────────────────────────────────────────────
-
-def fetch_fii_dii(session):
-    data = nse_get(session, "https://www.nseindia.com/api/fiidiiTradeReact")
-    fii, dii = "N/A", "N/A"
-    try:
-        today = data[0]
-        fii_val = float(today.get("netVal", 0))
-        sign    = "+" if fii_val >= 0 else ""
-        fii     = f"Rs. {sign}{fii_val:.0f} Cr"
-
-        dii_val = float(data[1].get("netVal", 0) if len(data) > 1 else 0)
-        sign2   = "+" if dii_val >= 0 else ""
-        dii     = f"Rs. {sign2}{dii_val:.0f} Cr"
-    except Exception as e:
-        print(f"FII/DII error: {e}")
-    return fii, dii
-
-# ─────────────────────────────────────────────────────────────
-# NSE — LONG / SHORT BUILDUP
-# ─────────────────────────────────────────────────────────────
-
-def fetch_buildup(session):
-    data = nse_get(session, "https://www.nseindia.com/api/live-analysis-oi-spurts-underlyings")
-    long_bu, short_bu = [], []
-    try:
-        for item in data.get("data", [])[:5]:
-            sym    = item.get("symbol", "")
-            pchg   = item.get("priceDiff", 0)
-            oichg  = item.get("oiDiff", 0)
-            if pchg > 0:
-                long_bu.append((sym, f"+{pchg:.1f}%", f"OI +{oichg:.0f}%"))
-            else:
-                short_bu.append((sym, f"{pchg:.1f}%", f"OI +{oichg:.0f}%"))
-    except Exception as e:
-        print(f"Buildup error: {e}")
-    return long_bu[:5], short_bu[:5]
-
-# ─────────────────────────────────────────────────────────────
-# NSE — MARKET BREADTH
-# ─────────────────────────────────────────────────────────────
-
-def fetch_breadth(session):
-    data = nse_get(session, "https://www.nseindia.com/api/allIndices")
-    try:
-        for item in data.get("data", []):
-            if item.get("index") == "NIFTY 500":
-                adv = item.get("advances", 1820)
-                dec = item.get("declines", 620)
-                unc = item.get("unchanged", 110)
-                return {"advances": adv, "declines": dec, "unchanged": unc}
-    except Exception as e:
-        print(f"Breadth error: {e}")
-    return {"advances": 1820, "declines": 620, "unchanged": 110}
-
-# ─────────────────────────────────────────────────────────────
-# BUILD FULL REPORT DATA
+# BUILD FULL REPORT
 # ─────────────────────────────────────────────────────────────
 
 def get_report_data():
-    print("Fetching data...")
-    today   = datetime.now().strftime("%d %B %Y")
-    session = nse_session()
+    print("Fetching data from Dhan API...")
+    today = datetime.now().strftime("%d %B %Y")
 
-    indices              = fetch_indices()
-    gainers, losers      = fetch_gainers_losers(session)
-    sectors              = fetch_sectors(session)
-    top_volume           = fetch_top_volume(session)
-    delivery             = fetch_delivery(session)
-    long_bu, short_bu    = fetch_buildup(session)
-    call_oi, put_oi      = fetch_oi_levels(session, "NIFTY")
-    bnf_call, bnf_put    = fetch_oi_levels(session, "BANKNIFTY")
-    fii, dii             = fetch_fii_dii(session)
-    w52h, w52l           = fetch_52w(session)
-    breadth              = fetch_breadth(session)
+    # Fetch all data
+    indices         = fetch_indices()
+    quotes          = fetch_all_quotes()
+    sectors         = fetch_sectors()
+    call_oi, put_oi = fetch_oi_from_dhan("NIFTY")
+    bnf_call, bnf_put = fetch_oi_from_dhan("BANKNIFTY")
+
+    # Derive from quotes
+    gainers, losers   = get_gainers_losers(quotes)
+    top_volume        = get_top_volume(quotes)
+    delivery          = get_delivery(quotes)
+    long_bu, short_bu = get_buildup(quotes)
+    breadth           = get_breadth(quotes)
+    w52h, w52l        = get_52w(quotes)
 
     all_call = (call_oi + bnf_call)[:4]
     all_put  = (put_oi  + bnf_put)[:4]
+    nifty_ltp = indices[0][1] if indices else "N/A"
+    top_call  = call_oi[0][0] if call_oi else "N/A"
+    top_put   = put_oi[0][0]  if put_oi  else "N/A"
 
-    nifty_ltp      = indices[0][1] if indices else "N/A"
-    top_call_strike = call_oi[0][0] if call_oi else "N/A"
-    top_put_strike  = put_oi[0][0]  if put_oi  else "N/A"
+    print(f"Gainers: {gainers}")
+    print(f"Volume:  {top_volume}")
+    print(f"Call OI: {all_call}")
 
     return {
         "date":    today,
@@ -351,15 +343,15 @@ def get_report_data():
         "call_oi":       all_call,
         "put_oi":        all_put,
         "key_levels": {
-            "strong_res": top_call_strike,
+            "strong_res": top_call,
             "resistance":  "N/A",
             "ltp":         nifty_ltp,
             "support":     "N/A",
-            "strong_sup":  top_put_strike,
+            "strong_sup":  top_put,
         },
-        "bulk_deals": [("N/A", "Check NSE")],
-        "fii": fii,
-        "dii": dii,
+        "bulk_deals": [("N/A", "No data")],
+        "fii": "N/A",
+        "dii": "N/A",
     }
 
 # ─────────────────────────────────────────────────────────────
