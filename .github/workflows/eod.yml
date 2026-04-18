@@ -21,9 +21,9 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Bot
-        run: python eod_bot.py
-        env:
-  BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-  DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
-  DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
+       - name: Run Bot
+         run: python eod_bot.py
+         env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}  
