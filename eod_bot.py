@@ -1,16 +1,14 @@
+# ADVANCED PREMIUM INSTITUTIONAL DASHBOARD
+# PRICE ACTION TELUGU — TELEGRAM EOD REPORT (2 IMAGE STYLE)
+
 import os
-import time
 import requests
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
-# =====================================================
-# PRICE ACTION TELUGU — CLEAN WORKING EOD IMAGE BOT
-# =====================================================
-
-# -----------------------------
+# =========================================================
 # CONFIG
-# -----------------------------
+# =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = "@priceactionoptions"
@@ -20,16 +18,52 @@ DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
 
 TELEGRAM_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-# -----------------------------
-# FALLBACK SAMPLE DATA
-# (safe starter version)
-# -----------------------------
+WIDTH = 1080
+HEIGHT = 1900
 
-def get_report_data():
-    today = datetime.now().strftime("%d %B %Y")
+# =========================================================
+# COLORS (PREMIUM LIGHT THEME)
+# =========================================================
 
+NAVY = (12, 28, 92)
+YELLOW = (255, 196, 0)
+GREEN = (0, 170, 90)
+RED = (220, 45, 45)
+CYAN = (0, 190, 220)
+PURPLE = (130, 90, 255)
+LIGHT_BG = (248, 249, 252)
+WHITE = (255, 255, 255)
+BLACK = (25, 25, 25)
+GRAY = (110, 110, 110)
+BORDER = (225, 230, 240)
+
+# =========================================================
+# FONT LOADER
+# =========================================================
+
+def font(size, bold=False):
+    try:
+        if bold:
+            return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
+        return ImageFont.truetype("DejaVuSans.ttf", size)
+    except:
+        return ImageFont.load_default()
+
+TITLE = font(42, True)
+HEAD = font(30, True)
+SUB = font(24, True)
+TXT = font(22)
+BOLD = font(22, True)
+SMALL = font(18)
+
+# =========================================================
+# SAMPLE DATA (replace later with live Dhan API)
+# =========================================================
+
+def get_data():
     return {
-        "date": today,
+        "date": datetime.now().strftime("%d %B %Y"),
+
         "nifty": "24,315",
         "banknifty": "52,840",
         "sensex": "80,218",
@@ -53,147 +87,178 @@ def get_report_data():
         "call_oi": [
             ("24500 CE", "1.82 Cr"),
             ("24600 CE", "1.35 Cr"),
-            ("56000 CE", "95 L"),
+            ("24700 CE", "95 L"),
         ],
 
         "put_oi": [
             ("24000 PE", "2.10 Cr"),
             ("24100 PE", "1.64 Cr"),
-            ("55000 PE", "1.12 Cr"),
+            ("24200 PE", "1.12 Cr"),
+        ],
+
+        "bulk_deals": [
+            ("RELIANCE", "Institutional Buy"),
+            ("INFY", "Fund Activity"),
+            ("BEL", "Large Accumulation"),
+            ("LT", "Bulk Buying"),
+            ("HDFCLIFE", "Promoter Activity"),
         ],
 
         "fii": "+₹2,350 Cr",
         "dii": "-₹1,120 Cr",
+
+        "summary":
+        "Institutions accumulating Defence & PSU stocks. "
+        "FII net buyers in IT. Watch BEL & HAL for continuation tomorrow.",
+
+        "bias":
+        "Buy on dips near 24,150 | Resistance near 24,500"
     }
 
-# -----------------------------
-# FONT
-# -----------------------------
+# =========================================================
+# SECTION BLOCK
+# =========================================================
 
-def load_font(size, bold=False):
-    try:
-        if bold:
-            return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
-        return ImageFont.truetype("DejaVuSans.ttf", size)
-    except:
-        return ImageFont.load_default()
+def section(draw, y, title, strip_color):
+    draw.rounded_rectangle((30, y, 1050, y + 60), radius=14, fill=NAVY)
+    draw.rectangle((30, y, 45, y + 60), fill=strip_color)
+    draw.text((65, y + 14), title, font=HEAD, fill=WHITE)
+    return y + 80
 
-TITLE_FONT = load_font(40, True)
-SUB_FONT = load_font(28, True)
-TEXT_FONT = load_font(22)
-BOLD_FONT = load_font(22, True)
+# =========================================================
+# SIMPLE ROW
+# =========================================================
 
-# -----------------------------
-# IMAGE GENERATOR
-# -----------------------------
+def row(draw, y, left, right, color=BLACK):
+    draw.text((60, y), left, font=BOLD, fill=BLACK)
+    draw.text((820, y), right, font=BOLD, fill=color)
+    return y + 42
 
-def create_dashboard_image(data):
-    width = 1080
-    height = 1700
+# =========================================================
+# IMAGE 1
+# =========================================================
 
-    bg = (248, 249, 252)
-    navy = (10, 25, 90)
-    yellow = (255, 196, 0)
-    green = (0, 160, 80)
-    red = (210, 45, 45)
-    white = (255, 255, 255)
-    black = (20, 20, 20)
-    border = (220, 225, 235)
-
-    img = Image.new("RGB", (width, height), bg)
+def create_page_1(data):
+    img = Image.new("RGB", (WIDTH, HEIGHT), LIGHT_BG)
     draw = ImageDraw.Draw(img)
 
-    # Header
-    draw.rounded_rectangle((20, 20, 1060, 110), radius=20, fill=yellow)
-    draw.text((250, 40), "PRICE ACTION TELUGU", font=TITLE_FONT, fill=navy)
+    # HEADER
+    draw.rounded_rectangle((20, 20, 1060, 100), radius=20, fill=YELLOW)
+    draw.text((250, 38), "PRICE ACTION TELUGU", font=TITLE, fill=NAVY)
 
-    draw.text((40, 140), "Institutional Smart Money Report", font=SUB_FONT, fill=black)
-    draw.text((40, 185), f"Date: {data['date']}", font=TEXT_FONT, fill=black)
+    draw.text((40, 135), "Institutional Smart Money Report", font=HEAD, fill=BLACK)
+    draw.text((40, 180), f"Date: {data['date']}", font=TXT, fill=BLACK)
 
     y = 250
 
-    def section(title, color):
-        nonlocal y
-        draw.rounded_rectangle((30, y, 1050, y + 55), radius=12, fill=navy)
-        draw.rectangle((30, y, 45, y + 55), fill=color)
-        draw.text((65, y + 13), title, font=SUB_FONT, fill=white)
-        y += 75
+    # INDEX
+    y = section(draw, y, "INDEX SNAPSHOT", CYAN)
+    y = row(draw, y, "NIFTY 50", data["nifty"], GREEN)
+    y = row(draw, y, "BANK NIFTY", data["banknifty"], GREEN)
+    y = row(draw, y, "SENSEX", data["sensex"], GREEN)
 
-    def row(left, right, right_color=black):
-        nonlocal y
-        draw.text((60, y), left, font=BOLD_FONT, fill=black)
-        draw.text((850, y), right, font=BOLD_FONT, fill=right_color)
-        y += 38
+    y += 30
 
-    # Index
-    section("INDEX SNAPSHOT", yellow)
-    row("NIFTY 50", data["nifty"], green)
-    row("BANK NIFTY", data["banknifty"], green)
-    row("SENSEX", data["sensex"], green)
+    # TOP VOLUME
+    y = section(draw, y, "TOP 5 HIGHEST VOLUME", YELLOW)
+    for s, v in data["top_volume"]:
+        y = row(draw, y, s, v, NAVY)
 
     y += 20
 
-    # Volume
-    section("TOP 5 HIGHEST VOLUME", yellow)
-    for stock, vol in data["top_volume"]:
-        row(stock, vol, navy)
+    # DELIVERY
+    y = section(draw, y, "TOP 5 HIGHEST DELIVERY %", GREEN)
+    for s, v in data["delivery"]:
+        y = row(draw, y, s, v, GREEN)
 
     y += 20
 
-    # Delivery
-    section("TOP 5 HIGHEST DELIVERY %", green)
-    for stock, val in data["delivery"]:
-        row(stock, val, green)
+    # CALL OI
+    y = section(draw, y, "CALL OI — RESISTANCE ZONE", RED)
+    for s, v in data["call_oi"]:
+        y = row(draw, y, s, v, RED)
 
     y += 20
 
-    # Call OI
-    section("CALL OI RESISTANCE", red)
-    for strike, oi in data["call_oi"]:
-        row(strike, oi, red)
+    # PUT OI
+    y = section(draw, y, "PUT OI — SUPPORT ZONE", GREEN)
+    for s, v in data["put_oi"]:
+        y = row(draw, y, s, v, GREEN)
 
-    y += 20
+    img.save("report_page_1.png")
+    return "report_page_1.png"
 
-    # Put OI
-    section("PUT OI SUPPORT", green)
-    for strike, oi in data["put_oi"]:
-        row(strike, oi, green)
+# =========================================================
+# IMAGE 2
+# =========================================================
 
-    y += 20
+def create_page_2(data):
+    img = Image.new("RGB", (WIDTH, HEIGHT), LIGHT_BG)
+    draw = ImageDraw.Draw(img)
+
+    draw.rounded_rectangle((20, 20, 1060, 100), radius=20, fill=YELLOW)
+    draw.text((250, 38), "PRICE ACTION TELUGU", font=TITLE, fill=NAVY)
+
+    draw.text((40, 135), "Institutional Smart Money Report", font=HEAD, fill=BLACK)
+    draw.text((40, 180), f"Date: {data['date']}", font=TXT, fill=BLACK)
+
+    y = 250
+
+    # BULK DEALS
+    y = section(draw, y, "TOP BULK / BLOCK DEALS", PURPLE)
+    for s, v in data["bulk_deals"]:
+        y = row(draw, y, s, v, NAVY)
+
+    y += 30
 
     # FII DII
-    section("FII / DII DATA", yellow)
-    row("FII Net", data["fii"], green)
-    row("DII Net", data["dii"], red)
+    y = section(draw, y, "FII / DII DATA", YELLOW)
+    y = row(draw, y, "FII Net Buy / Sell", data["fii"], GREEN)
+    y = row(draw, y, "DII Net Buy / Sell", data["dii"], RED)
 
-    # Footer
-    draw.line((40, 1560, 1040, 1560), fill=border, width=2)
+    y += 40
+
+    # SUMMARY
+    y = section(draw, y, "SMART MONEY SUMMARY", CYAN)
+
+    draw.rounded_rectangle((50, y, 1030, y + 180), radius=16, fill=WHITE)
+    draw.text((80, y + 30), data["summary"], font=TXT, fill=BLACK)
+    y += 220
+
+    # TOMORROW BIAS
+    y = section(draw, y, "TOMORROW'S BIAS", GREEN)
+
+    draw.rounded_rectangle((50, y, 1030, y + 130), radius=16, fill=WHITE)
+    draw.text((80, y + 40), data["bias"], font=SUB, fill=NAVY)
+    y += 180
+
+    # FOOTER
+    draw.line((60, y, 1020, y), fill=BORDER, width=2)
     draw.text(
-        (180, 1600),
+        (150, y + 40),
         "Follow @PriceActionTelugu | For Educational Purposes Only",
-        font=TEXT_FONT,
-        fill=navy
+        font=TXT,
+        fill=NAVY
     )
 
-    file_name = "eod_report.png"
-    img.save(file_name)
-    return file_name
+    img.save("report_page_2.png")
+    return "report_page_2.png"
 
-# -----------------------------
-# TELEGRAM SENDER
-# -----------------------------
+# =========================================================
+# TELEGRAM POST
+# =========================================================
 
-def send_photo(image_path):
+def send_photo(path, caption=""):
     try:
-        with open(image_path, "rb") as photo:
+        with open(path, "rb") as f:
             response = requests.post(
                 TELEGRAM_URL,
                 data={
                     "chat_id": CHAT_ID,
-                    "caption": "📊 PRICE ACTION TELUGU — Institutional Smart Money Report"
+                    "caption": caption
                 },
                 files={
-                    "photo": photo
+                    "photo": f
                 },
                 timeout=30
             )
@@ -203,11 +268,15 @@ def send_photo(image_path):
     except Exception as e:
         print("Telegram Error:", str(e))
 
-# -----------------------------
+# =========================================================
 # MAIN
-# -----------------------------
+# =========================================================
 
 if __name__ == "__main__":
-    data = get_report_data()
-    image_path = create_dashboard_image(data)
-    send_photo(image_path)
+    data = get_data()
+
+    page1 = create_page_1(data)
+    page2 = create_page_2(data)
+
+    send_photo(page1, "📊 Institutional Smart Money Report — Part 1")
+    send_photo(page2, "📊 Institutional Smart Money Report — Part 2")
