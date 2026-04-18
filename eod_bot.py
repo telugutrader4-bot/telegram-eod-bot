@@ -1,18 +1,17 @@
 # eod_bot.py
 # PRICE ACTION TELUGU — EOD Bot (Production)
-# Data from Dhan API → Premium Images → Telegram Channel
 
 import os
 import requests
 from datetime import datetime
-from image_generator import generate_images, ORANGE, PURPLE, TEAL
+from image_generator import generate_images
 
 # =====================================================
 # CONFIG
 # =====================================================
 
 BOT_TOKEN         = os.getenv("BOT_TOKEN")
-CHAT_ID           = "@priceactionoptions"
+CHAT_ID           = os.getenv("CHAT_ID", "@priceactionoptions")
 DHAN_CLIENT_ID    = os.getenv("DHAN_CLIENT_ID")
 DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
 
@@ -46,33 +45,19 @@ def safe_get(url, params=None):
         return None
 
 # =====================================================
-# DATA FETCHING  (replace URLs with real Dhan endpoints)
+# DATA
 # =====================================================
 
 def get_report_data():
     today = datetime.now().strftime("%d %B %Y")
 
-    # ── REPLACE THESE with your actual Dhan API calls ──
-    # index_data   = safe_get("https://api.dhan.co/market/index")
-    # gainers_data = safe_get("https://api.dhan.co/market/gainers")
-    # losers_data  = safe_get("https://api.dhan.co/market/losers")
-    # sector_data  = safe_get("https://api.dhan.co/market/sectors")
-    # volume_data  = safe_get("https://api.dhan.co/market/volume")
-    # delivery_data= safe_get("https://api.dhan.co/market/delivery")
-    # oi_data      = safe_get("https://api.dhan.co/options/oi")
-    # fii_data     = safe_get("https://api.dhan.co/market/fii-dii")
-    # ───────────────────────────────────────────────────
+    # Color tuples defined locally — no import needed
+    ORANGE = (255, 145, 0)
+    PURPLE = (165, 105, 245)
+    TEAL   = (0, 210, 185)
 
-    # ── Parse your API responses and fill the dict below ──
-    # Example for indices (adapt keys to match actual Dhan response):
-    # nifty_val  = f"{index_data['nifty50']['last']:,.0f}"
-    # nifty_chg  = f"{index_data['nifty50']['changePercent']:+.2f}%"
-
-    # ── FALLBACK / TEST DATA (replace with real parsed data) ──
     return {
         "date": today,
-
-        # Part 1
         "indices": [
             ("NIFTY 50",   "24,315", "+0.82%"),
             ("BANK NIFTY", "52,840", "+1.14%"),
@@ -116,8 +101,6 @@ def get_report_data():
             ("TECHM",      "1,315",  "1,310"),
             ("DABUR",      "488.60", "485.00"),
         ],
-
-        # Part 2
         "top_volume": [
             ("RELIANCE",    "4.2 Cr"),
             ("SBIN",        "3.8 Cr"),
@@ -177,7 +160,7 @@ def get_report_data():
     }
 
 # =====================================================
-# SEND TO TELEGRAM
+# TELEGRAM
 # =====================================================
 
 def send_photo(path, caption):
@@ -189,10 +172,10 @@ def send_photo(path, caption):
                 files={"photo": f},
                 timeout=30,
             )
-        print("Telegram:", r.status_code, r.text[:120])
+        print(f"Telegram [{r.status_code}]: {path}")
         return r.status_code == 200
     except Exception as e:
-        print("Telegram Error:", str(e))
+        print(f"Telegram Error: {e}")
         return False
 
 # =====================================================
@@ -201,16 +184,11 @@ def send_photo(path, caption):
 
 if __name__ == "__main__":
     print("Starting EOD Bot...")
-
     data = get_report_data()
-
     print("Generating images...")
     part1_path, part2_path = generate_images(data)
-
     print("Sending Part 1...")
     send_photo(part1_path, "📊 PRICE ACTION TELUGU — EOD Report Part 1 of 2\nIndex | Gainers & Losers | Sectors | 52W High & Low")
-
     print("Sending Part 2...")
     send_photo(part2_path, "📊 PRICE ACTION TELUGU — EOD Report Part 2 of 2\nVolume | Delivery | Buildup | OI | FII/DII")
-
     print("Done.")
