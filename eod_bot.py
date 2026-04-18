@@ -7,7 +7,7 @@ from datetime import datetime
 # =========================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = "@priceactiontelugu"   # replace with your Telegram channel username if needed
+CHAT_ID = "@priceactionoptions"   # replace with your Telegram channel username if needed
 
 DHAN_CLIENT_ID = os.getenv("DHAN_CLIENT_ID")
 DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
