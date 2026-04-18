@@ -14,12 +14,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = "@priceactionoptions"   # safer later: use numeric channel ID
+DHAN_ACCESS_TOKEN = os.environ.get("DHAN_ACCESS_TOKEN", "").strip()
 
-DHAN_CLIENT_ID = os.getenv("DHAN_CLIENT_ID", "1100484167")
-DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
+print("DHAN TOKEN FOUND:", bool(DHAN_ACCESS_TOKEN))
 
-if not BOT_TOKEN:
-    raise Exception("BOT_TOKEN missing in GitHub Secrets")
+if DHAN_ACCESS_TOKEN == "":
+    raise Exception("DHAN_ACCESS_TOKEN missing in GitHub Secrets")
 
 if not DHAN_ACCESS_TOKEN:
     raise Exception("DHAN_ACCESS_TOKEN missing in GitHub Secrets")
