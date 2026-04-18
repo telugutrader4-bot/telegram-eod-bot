@@ -1,10 +1,10 @@
 # eod_bot.py — PRICE ACTION TELUGU
-# Using /marketfeed/quote which returns volume + net_change + oi per instrument
+# Correct Dhan API — based on official docs
 
 import os
 import time
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from image_generator import generate_images
 
 BOT_TOKEN         = os.getenv("BOT_TOKEN")
@@ -23,9 +23,6 @@ ORANGE = (255, 145, 0)
 PURPLE = (165, 105, 245)
 TEAL   = (0, 210, 185)
 
-# ─────────────────────────────────────────────────────────────
-# KEY STOCKS — NSE_EQ security IDs
-# ─────────────────────────────────────────────────────────────
 STOCKS = [
     (1333,  "HDFCBANK"),   (11536, "RELIANCE"),  (3045,  "INFY"),
     (10999, "TCS"),        (16675, "ICICIBANK"),  (14977, "SBIN"),
@@ -40,24 +37,91 @@ STOCKS = [
 # API HELPER
 # ─────────────────────────────────────────────────────────────
 def dhan_post(url, payload):
-    time.sleep(1)  # 1 req/sec rate limit
+    time.sleep(1)
     try:
         r = requests.post(url, headers=DHAN_HEADERS, json=payload, timeout=20)
         print(f"POST {url.split('/')[-1]}: {r.status_code}")
         if r.status_code == 200:
             return r.json()
-        print(f"  Error: {r.text[:100]}")
+        print(f"  Error: {r.text[:150]}")
         return None
     except Exception as e:
         print(f"  Exception: {e}")
         return None
 
 # ─────────────────────────────────────────────────────────────
-# INDICES — IDX_I segment, ohlc endpoint
+# STEP 1: GET EXPIRY LIST — then use first expiry
+# POST /optionchain/expirylist
+# ─────────────────────────────────────────────────────────────
+def fetch_expiry(scrip_id=13):
+    payload = {
+        "UnderlyingScrip": scrip_id,
+        "UnderlyingSeg":   "IDX_I"
+    }
+    data = dhan_post("https://api.dhan.co/v2/optionchain/expirylist", payload)
+    try:
+        expiries = data["data"]  # list like ["2026-04-24", "2026-05-01", ...]
+        print(f"  Expiries: {expiries[:3]}")
+        return expiries[0]  # nearest expiry
+    except Exception as e:
+        print(f"  Expiry fetch error: {e}")
+        return None
+
+# ─────────────────────────────────────────────────────────────
+# STEP 2: GET OPTION CHAIN — response is data.oc.{strike}.ce/pe
+# POST /optionchain
+# ─────────────────────────────────────────────────────────────
+def fetch_oi(scrip_id=13, symbol="NIFTY"):
+    expiry = fetch_expiry(scrip_id)
+    if not expiry:
+        return [], []
+
+    time.sleep(3)  # Option chain rate limit: 1 request per 3 seconds
+
+    payload = {
+        "UnderlyingScrip": scrip_id,
+        "UnderlyingSeg":   "IDX_I",
+        "Expiry":          expiry
+    }
+    data = dhan_post("https://api.dhan.co/v2/optionchain", payload)
+
+    call_oi, put_oi = [], []
+    try:
+        oc = data["data"]["oc"]  # dict of {strike: {ce: {...}, pe: {...}}}
+        ltp = data["data"].get("last_price", 0)
+        print(f"  {symbol} LTP: {ltp}, Strikes: {len(oc)}")
+
+        oi_list = []
+        for strike_str, strike_data in oc.items():
+            strike = float(strike_str)
+            c_oi   = strike_data.get("ce", {}).get("oi", 0) or 0
+            p_oi   = strike_data.get("pe", {}).get("oi", 0) or 0
+            oi_list.append((strike, float(c_oi), float(p_oi)))
+
+        # Top 4 by Call OI
+        for strike, c, _ in sorted(oi_list, key=lambda x: -x[1])[:4]:
+            val = f"{c/100:.2f} Cr" if c >= 100 else f"{int(c)} L"
+            call_oi.append((f"{symbol} {int(strike)} CE", val))
+
+        # Top 4 by Put OI
+        for strike, _, p in sorted(oi_list, key=lambda x: -x[2])[:4]:
+            val = f"{p/100:.2f} Cr" if p >= 100 else f"{int(p)} L"
+            put_oi.append((f"{symbol} {int(strike)} PE", val))
+
+        print(f"  Call OI: {call_oi[:2]}")
+        print(f"  Put  OI: {put_oi[:2]}")
+
+    except Exception as e:
+        print(f"  OI parse error: {e}")
+        print(f"  Response: {str(data)[:200]}")
+
+    return call_oi, put_oi
+
+# ─────────────────────────────────────────────────────────────
+# INDICES
 # ─────────────────────────────────────────────────────────────
 def fetch_indices():
-    data = dhan_post("https://api.dhan.co/v2/marketfeed/ohlc",
-                     {"IDX_I": [13, 25, 51]})
+    data = dhan_post("https://api.dhan.co/v2/marketfeed/ohlc", {"IDX_I": [13, 25, 51]})
     indices = []
     try:
         seg = data["data"]["IDX_I"]
@@ -78,38 +142,33 @@ def fetch_indices():
     return indices
 
 # ─────────────────────────────────────────────────────────────
-# STOCKS — /marketfeed/quote gives volume + net_change
-# Split into 2 batches of 10 to respect rate limit
+# STOCK QUOTES — /marketfeed/quote for volume + net_change
 # ─────────────────────────────────────────────────────────────
 def fetch_quotes():
     quotes = {}
     batches = [STOCKS[:10], STOCKS[10:]]
     for batch in batches:
-        ids = [s[0] for s in batch]
-        data = dhan_post("https://api.dhan.co/v2/marketfeed/quote",
-                         {"NSE_EQ": ids})
+        ids  = [s[0] for s in batch]
+        data = dhan_post("https://api.dhan.co/v2/marketfeed/quote", {"NSE_EQ": ids})
         try:
             seg = data["data"]["NSE_EQ"]
             for sid, sym in batch:
                 key = str(sid)
                 if key in seg:
-                    d        = seg[key]
-                    ltp      = d.get("last_price", 0)
-                    prev_cls = d.get("ohlc", {}).get("close", ltp)
-                    net_chg  = d.get("net_change", ltp - prev_cls)
-                    pct      = (net_chg / prev_cls * 100) if prev_cls else 0
-                    volume   = d.get("volume", 0)
-                    quotes[sym] = {
-                        "ltp": ltp, "pct": pct,
-                        "net_change": net_chg, "volume": volume
-                    }
+                    d      = seg[key]
+                    ltp    = d.get("last_price", 0)
+                    prev   = d.get("ohlc", {}).get("close", ltp)
+                    net    = d.get("net_change", ltp - prev)
+                    pct    = (net / prev * 100) if prev else 0
+                    vol    = d.get("volume", 0)
+                    quotes[sym] = {"ltp": ltp, "pct": pct, "net": net, "volume": vol}
         except Exception as e:
-            print(f"  Quote batch error: {e}")
-    print(f"  Got quotes for {len(quotes)} stocks")
+            print(f"  Quotes error: {e}")
+    print(f"  Got {len(quotes)} stock quotes")
     return quotes
 
 # ─────────────────────────────────────────────────────────────
-# DERIVE DATA FROM QUOTES
+# DERIVE DATA
 # ─────────────────────────────────────────────────────────────
 def get_gainers_losers(q):
     s = sorted(q.items(), key=lambda x: x[1]["pct"], reverse=True)
@@ -121,35 +180,28 @@ def get_top_volume(q):
     s = sorted(q.items(), key=lambda x: x[1]["volume"], reverse=True)
     result = []
     for sym, d in s[:5]:
-        vol = d["volume"]
-        if vol >= 10_000_000:
-            val = f"{vol/10_000_000:.1f} Cr"
-        elif vol >= 100_000:
-            val = f"{vol/100_000:.1f} L"
-        else:
-            val = f"{vol:,}"
+        v = d["volume"]
+        val = f"{v/10_000_000:.1f} Cr" if v >= 10_000_000 else f"{v/100_000:.1f} L" if v >= 100_000 else f"{v:,}"
         result.append((sym, val))
     return result
 
 def get_buildup(q):
     s = sorted(q.items(), key=lambda x: x[1]["pct"], reverse=True)
-    long_bu  = [(sym, f"+{d['pct']:.1f}%", "Price Up")
-                for sym, d in s[:5] if d["pct"] > 1]
-    short_bu = [(sym, f"{d['pct']:.1f}%",  "Price Down")
-                for sym, d in s[-5:] if d["pct"] < -1]
+    long_bu  = [(sym, f"+{d['pct']:.1f}%", "Price Up")   for sym, d in s[:5]  if d["pct"] > 1]
+    short_bu = [(sym, f"{d['pct']:.1f}%",  "Price Down") for sym, d in s[-5:] if d["pct"] < -1]
     return long_bu, list(reversed(short_bu))
 
 def get_sectors(q):
-    sector_stocks = {
-        "DEFENCE":  ["BEL", "HAL"],
-        "BANKING":  ["HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK"],
-        "IT":       ["INFY", "TCS", "HCLTECH", "WIPRO", "TECHM"],
+    groups = {
+        "DEFENCE": ["BEL","HAL"],
+        "BANKING":  ["HDFCBANK","ICICIBANK","SBIN","AXISBANK"],
+        "IT":       ["INFY","TCS","HCLTECH","WIPRO","TECHM"],
         "ENERGY":   ["TATAPOWER"],
         "METALS":   ["TATASTEEL"],
-        "FMCG":     ["HINDUNILVR", "ITC"],
+        "FMCG":     ["HINDUNILVR","ITC"],
     }
     result = []
-    for sector, stocks in sector_stocks.items():
+    for sector, stocks in groups.items():
         pcts = [q[s]["pct"] for s in stocks if s in q]
         if pcts:
             avg  = sum(pcts) / len(pcts)
@@ -159,86 +211,19 @@ def get_sectors(q):
 
 def get_breadth(q):
     if not q:
-        return {"advances": 250, "declines": 200, "unchanged": 50}
+        return {"advances": 0, "declines": 0, "unchanged": 0}
     adv = sum(1 for d in q.values() if d["pct"] > 0.1)
     dec = sum(1 for d in q.values() if d["pct"] < -0.1)
     unc = max(0, len(q) - adv - dec)
     total = max(adv + dec + unc, 1)
     f = 500 / total
-    return {
-        "advances":  max(1, int(adv * f)),
-        "declines":  max(1, int(dec * f)),
-        "unchanged": max(0, int(unc * f)),
-    }
+    return {"advances": max(1,int(adv*f)), "declines": max(1,int(dec*f)), "unchanged": max(0,int(unc*f))}
 
 def get_52w(q):
     s = sorted(q.items(), key=lambda x: x[1]["pct"], reverse=True)
     highs = [(sym, f"{d['ltp']:,.2f}", "52W High") for sym, d in s[:5]  if d["pct"] > 0]
     lows  = [(sym, f"{d['ltp']:,.2f}", "52W Low")  for sym, d in s[-5:] if d["pct"] < 0]
     return highs, list(reversed(lows))
-
-# ─────────────────────────────────────────────────────────────
-# OPTION CHAIN OI — tries multiple expiry dates
-# ─────────────────────────────────────────────────────────────
-def get_expiries():
-    today = datetime.now()
-    expiries = []
-    for i in range(21):
-        d = today + timedelta(days=i)
-        if d.weekday() == 3:  # Thursday
-            expiries.append(d.strftime("%Y-%m-%d"))
-        if len(expiries) == 3:
-            break
-    return expiries
-
-def fetch_oi(symbol="NIFTY"):
-    sec_id = 13 if symbol == "NIFTY" else 25
-    for expiry in get_expiries():
-        payload = {
-            "UnderlyingScrip": sec_id,
-            "UnderlyingSeg":   "IDX_I",
-            "Expiry":          expiry
-        }
-        data = dhan_post("https://api.dhan.co/v2/optionchain", payload)
-        if not data:
-            continue
-
-        # Check for error
-        d = data.get("data", {})
-        if isinstance(d, dict) and d.get("811"):
-            print(f"  OI {symbol} expiry {expiry}: invalid, trying next")
-            continue
-
-        rows = data.get("data", [])
-        if not isinstance(rows, list) or not rows:
-            print(f"  OI {symbol} expiry {expiry}: no rows")
-            continue
-
-        oi_list = []
-        for row in rows:
-            strike = row.get("strikePrice", 0)
-            c_oi   = float(row.get("callOI", 0) or 0)
-            p_oi   = float(row.get("putOI",  0) or 0)
-            if strike and (c_oi or p_oi):
-                oi_list.append((float(strike), c_oi, p_oi))
-
-        if not oi_list:
-            print(f"  OI {symbol} expiry {expiry}: empty strikes")
-            continue
-
-        call_oi, put_oi = [], []
-        for strike, c, _ in sorted(oi_list, key=lambda x: -x[1])[:4]:
-            val = f"{c/100:.2f} Cr" if c >= 100 else f"{int(c)} L"
-            call_oi.append((f"{symbol} {int(strike)} CE", val))
-        for strike, _, p in sorted(oi_list, key=lambda x: -x[2])[:4]:
-            val = f"{p/100:.2f} Cr" if p >= 100 else f"{int(p)} L"
-            put_oi.append((f"{symbol} {int(strike)} PE", val))
-
-        print(f"  OI {symbol} ({expiry}): {len(oi_list)} strikes OK")
-        return call_oi, put_oi
-
-    print(f"  OI {symbol}: all expiries failed")
-    return [], []
 
 # ─────────────────────────────────────────────────────────────
 # TELEGRAM
@@ -264,8 +249,10 @@ def get_report_data():
 
     indices           = fetch_indices()
     quotes            = fetch_quotes()
-    call_oi, put_oi   = fetch_oi("NIFTY")
-    bnf_call, bnf_put = fetch_oi("BANKNIFTY")
+
+    # OI — fetch expiry list first, then option chain
+    call_oi, put_oi   = fetch_oi(13, "NIFTY")
+    bnf_call, bnf_put = fetch_oi(25, "BANKNIFTY")
 
     gainers, losers   = get_gainers_losers(quotes)
     top_volume        = get_top_volume(quotes)
@@ -279,11 +266,6 @@ def get_report_data():
     nifty_ltp = indices[0][1] if indices else "N/A"
     top_call  = call_oi[0][0] if call_oi else "N/A"
     top_put   = put_oi[0][0]  if put_oi  else "N/A"
-
-    print(f"Gainers: {gainers}")
-    print(f"Losers:  {losers}")
-    print(f"Volume:  {top_volume}")
-    print(f"Sectors: {sectors}")
 
     return {
         "date":    today,
